@@ -89,12 +89,14 @@ class OpenSSLConan(ConanFile):
         "no_zlib": [True, False],
         "openssldir": [None, "ANY"],
         "tls_security_level": [None, 0, 1, 2, 3, 4, 5],
+        "use_jom": [True, False]
     }
     default_options = {key: False for key in options.keys()}
     default_options["fPIC"] = True
     default_options["no_md2"] = True
     default_options["openssldir"] = None
     default_options["tls_security_level"] = None
+    default_options["use_jom"] = True
 
     @property
     def _is_clang_cl(self):
@@ -117,6 +119,7 @@ class OpenSSLConan(ConanFile):
         if self.settings.os != "Windows":
             self.options.rm_safe("capieng_dialog")
             self.options.rm_safe("enable_capieng")
+            self.options.rm_safe("use_jom")
         else:
             self.options.rm_safe("fPIC")
 
@@ -152,6 +155,8 @@ class OpenSSLConan(ConanFile):
                 self.tool_requires("nasm/2.16.01")
             if self._use_nmake:
                 self.tool_requires("strawberryperl/5.32.1.1")
+                if self.options.use_jom:
+                    self.tool_requires("jom/1.1.3")
             else:
                 self.win_bash = True
                 if not self.conf.get("tools.microsoft.bash:path", check_type=str):
@@ -410,7 +415,7 @@ class OpenSSLConan(ConanFile):
             ])
 
         for option_name in self.default_options.keys():
-            if self.options.get_safe(option_name, False) and option_name not in ("shared", "fPIC", "openssldir", "tls_security_level", "capieng_dialog", "enable_capieng", "zlib", "no_fips", "no_md2"):
+            if self.options.get_safe(option_name, False) and option_name not in ("shared", "fPIC", "openssldir", "tls_security_level", "capieng_dialog", "enable_capieng", "zlib", "no_fips", "no_md2", "use_jom"):
                 self.output.info(f"Activated option: {option_name}")
                 args.append(option_name.replace("_", "-"))
         return args
@@ -494,7 +499,7 @@ class OpenSSLConan(ConanFile):
             command.append(f"DESTDIR={self._adjust_path(self.package_folder)}")
         if targets:
             command.extend(targets)
-        if not self._use_nmake:
+        if not self._use_nmake or self.options.use_jom:
             command.append(f"-j{build_jobs(self)}" if parallel else "-j1")
         self.run(" ".join(command), env="conanbuild")
 
@@ -537,7 +542,9 @@ class OpenSSLConan(ConanFile):
 
     @property
     def _make_program(self):
-        return "nmake" if self._use_nmake else "make"
+        if self._use_nmake:
+            return "jom" if self.options.use_jom else "nmake"
+        return "make"
 
     def _replace_runtime_in_file(self, filename):
         runtime = msvc_runtime_flag(self)
